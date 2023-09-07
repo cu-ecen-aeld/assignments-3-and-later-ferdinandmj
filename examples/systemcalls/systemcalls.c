@@ -1,4 +1,11 @@
 #include "systemcalls.h"
+#include <stdlib.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <stdio.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,8 +23,10 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    int result = system(cmd);
 
-    return true;
+
+    return (result < 0? false: true);
 }
 
 /**
@@ -45,20 +54,29 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
-/*
- * TODO:
- *   Execute a system command by calling fork, execv(),
- *   and wait instead of system (see LSP page 161).
- *   Use the command[0] as the full path to the command to execute
- *   (first argument to execv), and use the remaining arguments
- *   as second argument to the execv() command.
- *
-*/
-
+    int wstatus;
+    fflush(stdout);
+    pid_t pid = fork();
+    switch(pid) {
+    case -1:
+        va_end(args);
+        exit(EXIT_FAILURE);
+    case 0:
+        execv(command[0], &command[1]);
+        va_end(args);
+        exit(EXIT_FAILURE);    
+        
+    default: 
+        va_end(args);
+        if (wait(&wstatus) < 0) {
+            exit(EXIT_FAILURE);
+        }
+        if (!(WIFEXITED(wstatus) && (WEXITSTATUS(wstatus) == 0))) {
+            exit(EXIT_FAILURE);
+        }
+    }
+    
     va_end(args);
 
     return true;
@@ -80,10 +98,6 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
-
 
 /*
  * TODO
@@ -92,6 +106,38 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+
+    int fd = open(outputfile, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+    if (fd < 0) {
+        exit(EXIT_FAILURE);
+    }
+    pid_t pid = fork();
+    switch(pid) {
+    case -1:
+        va_end(args);
+        exit(EXIT_FAILURE);
+    case 0:
+        va_end(args);
+        if (dup2(fd, 1) < 0) {
+            exit(EXIT_FAILURE);
+        } 
+        else {
+            close(fd);
+            execv(command[0], &command[1]);
+            exit(EXIT_FAILURE);       
+        }
+
+    default:
+        va_end(args); 
+        close(fd);
+        int wstatus;
+        if (wait(&wstatus) < 0) {
+            exit(EXIT_FAILURE);
+        }
+        if (!(WIFEXITED(wstatus) && (WEXITSTATUS(wstatus) == 0))) {
+            exit(EXIT_FAILURE);
+        }
+    }
 
     va_end(args);
 
